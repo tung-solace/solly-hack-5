@@ -1,1 +1,1 @@
-![ReviewMate Flow](docs/reviewmate-storybook-flow.svg)
+![ReviewMate Flow](docs/info.svg)
