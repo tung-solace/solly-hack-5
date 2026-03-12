@@ -14,6 +14,16 @@ The skill reads GUIDELINE.md during execution to learn project-specific patterns
 
 ## Usage Patterns
 
+### Automatic Mode (Recommended)
+```
+/storybook-generator
+```
+**Automatically:**
+- Runs `/git-diff` to analyze recent changes
+- Identifies components missing stories
+- Shows you the list of components
+- Generates stories for all identified components
+
 ### Single Component
 ```
 /storybook-generator src/components/agents/AgentCard.tsx
@@ -47,13 +57,133 @@ When this skill is invoked:
 
 ### Step 1: Parse Arguments
 
-Parse the command to determine:
-- Component path(s)
-- Flags: `--update`, `--recursive`, `--include-children`
+Parse the command to determine mode:
 
-### Step 2: Process Each Component
+**A. Automatic Mode (No Arguments)**
+- If NO component paths provided:
+  - Proceed to Step 2 to run git-diff
+  - Extract components needing stories from git-diff output
+  - Show list to user
+  - Generate stories for all identified components
+
+**B. Manual Mode (With Arguments)**
+- Component path(s) provided
+- Flags: `--update`, `--recursive`, `--include-children`
+- Proceed with specified components
+
+### Step 2: Git Diff Integration
+
+**AUTOMATIC BEHAVIOR**: This step runs automatically based on the mode.
+
+**For Automatic Mode (no arguments):**
+
+1. **Always invoke git-diff**:
+   - Automatically invoke `/git-diff` skill
+   - Wait for analysis to complete
+   - Git-diff will identify components missing stories (based on Story coverage config)
+
+2. **Extract components needing stories**:
+   - Parse git-diff output for "Missing Stories" section
+   - Get list of component paths that need stories generated
+
+3. **Show list to user**:
+   ```
+   ✓ Git-diff analysis complete
+   ✓ Found 3 components needing stories:
+     - src/components/multiFlow/FlowDetailCard.tsx
+     - src/components/multiFlow/MiFlowMetrics.tsx
+     - src/components/agents/AgentCard.tsx
+
+   Generating stories for all components...
+   ```
+
+4. **Proceed to Phase 1** for each component
+
+**For Manual Mode (with component paths):**
+
+1. **Check if any component is in recent git changes**:
+   ```bash
+   git status --short
+   ```
+   - Look for component file(s) in output (modified, added, or untracked)
+   - Works for both single and multiple files
+
+2. **Check if git-diff was already run**:
+   - Look back in conversation history for recent `/git-diff` invocation
+   - If found in last ~5 messages, skip automatic invocation
+
+3. **Automatically invoke git-diff if needed**:
+   - If ANY component is in recent changes AND git-diff wasn't run yet:
+     - Automatically invoke `/git-diff` skill (once, even for multiple files)
+     - Wait for analysis to complete
+     - Store output for use in Phase 0
+
+4. **Skip automatic invocation if**:
+   - Component(s) haven't changed recently
+   - Git-diff was already run manually in this session
+   - No git repository detected
+
+**Benefits:**
+- ✅ Automatic 404 error prevention
+- ✅ Faster generation (skip redundant API tracing)
+- ✅ Better documentation (transformations explained)
+- ✅ Works seamlessly for batch processing
+
+**Example output:**
+```
+✓ Detected FlowDetailCard.tsx in recent changes
+✓ Automatically invoking /git-diff for context...
+✓ Git-diff analysis complete
+✓ Found 2 API endpoints with transformations
+✓ Proceeding to Phase 0 with git-diff context...
+```
+
+### Step 3: Process Each Component
 
 For each component, follow the **7-Phase Mandatory Workflow**:
+
+**Note:** If git-diff context was gathered in Step 2, use it to inform Phase 2 (API endpoints) and Phase 4 (handler discovery).
+
+---
+
+## Phase 0: Contextual Pre-Analysis (Automatic when available)
+
+**Goal**: Leverage git-diff analysis if component was recently changed
+
+**When this phase runs:**
+- Step 2 detected component in recent changes
+- Git-diff was automatically invoked (or run manually earlier)
+- Git-diff analysis output is available
+
+**Process:**
+
+1. **Check if git-diff context exists** from Step 2
+   - If YES: Extract API endpoints, hooks, and transformations from git-diff output
+   - If NO: Skip to Phase 1 (use manual tracing in Phase 2)
+
+2. **Extract from git-diff analysis:**
+   - List of React Query hooks used
+   - Actual API endpoints (after transformations)
+   - Data transformation functions documented
+   - Component dependencies
+
+3. **Use this context to enhance:**
+   - Phase 2: Skip redundant API tracing (already done by git-diff)
+   - Phase 4: Prioritize handlers identified by git-diff
+   - Phase 6: Better story variant ideas based on props changes
+
+**Output**: Contextual information to speed up and improve story generation
+
+**Example:**
+```
+Git-diff analysis found:
+- useGetConnectorTypeById → /microIntegrationTypes/ibmmq (after splitMITypesString)
+- useEnvironments → /api/v2/platform/environments
+- Jotai atom: selectedConnectorRows
+- Router: useHistory
+
+Using this context to generate story...
+```
 
 ---
 
@@ -81,6 +211,14 @@ For each component, follow the **7-Phase Mandatory Workflow**:
 ## Phase 2: API Call Deep Dive
 
 **Goal**: Find ALL actual API endpoints the component calls
+
+**Check Phase 0 context first:**
+- If git-diff analysis was performed in Phase 0 and identified API endpoints:
+  - Use those endpoints directly
+  - Verify transformations are documented
+  - Skip to documenting endpoints for Phase 4
+- If NO git-diff context OR endpoints unclear:
+  - Proceed with manual tracing below
 
 ### If Component Has React Query Hooks:
 
@@ -328,6 +466,11 @@ Continue to Phase 7.
 
 Provide comprehensive output including:
 
+0. **Git-Diff Context** (if used):
+   - Note if git-diff pre-analysis was performed
+   - API endpoints identified from git-diff
+   - Transformations documented from git-diff
+
 1. **Components Analyzed**:
    - List of components processed
    - Component types identified
@@ -367,7 +510,49 @@ Provide comprehensive output including:
    3. Review generated stories
    ```
 
-**Example Output Format**:
+**Example Output Format (with git-diff context):**
+```
+✓ Generated story for FlowDetailCard component
+
+Git-Diff Context:
+✓ Used git-diff pre-analysis
+✓ API endpoints identified: useGetConnectorTypeById, useEnvironments
+✓ Transformation documented: splitMITypesString("ibmmq-source") → "ibmmq"
+
+Component Analysis:
+- Type: Card with Selection (Medium Complexity)
+- Dependencies: React Query, Jotai, Router
+- Pattern: Pattern 3 (React Query + Jotai + Router)
+
+API Endpoints:
+- useGetConnectorTypeById → /microIntegrationTypes/ibmmq (after transformation)
+- useEnvironments → /api/v2/platform/environments
+- Transformation: splitMITypesString removes direction suffix
+
+Handler Strategy:
+- Imported: connectorEnvironments
+- Inline: ibmmqConnectorType, servicebusConnectorType, awssqsConnectorType
+- All handlers match actual endpoints (verified via git-diff)
+
+Story Details:
+- Created: src/stories/Multiflow/FlowDetailCard.stories.tsx
+- Variants: 8 (RunningState, DeployingState, ErrorState, NotDeployedState, CompactMode, WithMetrics, WithActionMenu, NoDescription)
+- Decorator: QueryClientProvider + JotaiProvider + MemoryRouter
+
+Pitfall Validation:
+✓ React import present
+✓ Correct decorator stack
+✓ MSW handlers match git-diff identified endpoints
+✓ Appropriate timeouts
+✓ All test patterns valid
+
+Next Steps:
+1. Run Storybook: npm run storybook --prefix micro-frontends/intg
+2. View at http://localhost:6006
+3. Navigate to Multiflow/FlowDetailCard
+```
+
+**Example Output Format (without git-diff):**
 ```
 ✓ Generated story for MiFlowMetrics component
 
@@ -449,6 +634,47 @@ Next Steps:
 ---
 
 ## Important Notes
+
+### Git-Diff Integration (Fully Automatic)
+
+**AUTOMATIC BEHAVIOR**: This skill now automatically invokes git-diff!
+
+**Fully Automatic Mode (Recommended):**
+```bash
+# Just run with no arguments:
+/storybook-generator
+
+# Automatically:
+# 1. Invokes /git-diff to analyze all changes
+# 2. Identifies components missing stories
+# 3. Shows you the list
+# 4. Generates stories for all of them
+```
+
+**Manual Component Selection:**
+```bash
+# Specify component(s):
+/storybook-generator src/components/Foo.tsx
+
+# Automatically:
+# 1. Checks if component is in recent changes
+# 2. Invokes /git-diff if needed
+# 3. Uses git-diff context to generate story
+```
+
+**Benefits:**
+- ✅ Automatically traces API endpoints and transformations
+- ✅ Identifies all React Query hooks and their actual endpoints
+- ✅ Documents data transformation functions in generated stories
+- ✅ Prevents 404 errors by ensuring correct MSW handler paths
+- ✅ Speeds up story generation by skipping redundant analysis
+- ✅ Works seamlessly for both single and multiple files
+- ✅ No manual git-diff invocation needed
+
+**When automatic git-diff is skipped (Manual Mode only):**
+- Component(s) not in recent git changes
+- Git-diff already run in this session
+- No git repository detected
 
 ### Always Include
 
